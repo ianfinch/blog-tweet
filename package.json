@@ -1,0 +1,16 @@
+{
+  "name": "lambda-blog-post",
+  "version": "1.0.0",
+  "description": "Lambda function to send tweet for a blog post",
+  "main": "run.js",
+  "dependencies": {
+    "aws-sdk": "^2.149.0",
+    "twit": "^2.2.9"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ian Finch",
+  "license": "ISC"
+}
