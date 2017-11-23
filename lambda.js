@@ -24,7 +24,7 @@ var snsTopic = "arn:aws:sns:us-east-1:632386139671:blog-tweeted";
  */
 function getTemplates(soFar) {
     var templateTable = {
-        Limit: 2,
+//        Limit: 2,
         TableName: "blog-tweet-templates"
     };
 
@@ -68,7 +68,7 @@ function getTemplates(soFar) {
  */
 function getHistory(soFar) {
     var historyTable = {
-        Limit: 2,
+//        Limit: 2,
         TableName: "blog-tweet-history"
     };
 
@@ -98,7 +98,12 @@ function getHistory(soFar) {
         }
 
         // If there are no more items, select a random tweet and return it
-        return Promise.resolve(randomTweet(enriched));
+        var selectedTweet = randomTweet(enriched);
+        if (selectedTweet !== null) {
+            return Promise.resolve(selectedTweet);
+        }
+
+        return Promise.reject(new Error("Could not find an active tweet template"));
     };
 }
 
@@ -123,11 +128,21 @@ function randomTweet(tweets) {
 
     // Assign weights based on occurrences
     var weights = tweets.map(function (tweet) {
+        if (!tweet.enabled) {
+            return null;
+        }
+
         return {
             "template": tweet["template-id"],
             "weight": (total - tweet.tweeted) / total
         };
-    });
+    }).filter(x => {return x;});
+
+    // Weighting calculation doesn't work if there's only one active template
+    // (because total and tweet.tweeted are equal, so weight is zero)
+    if (weights.length === 1) {
+        return tweets[weights[0].template];
+    }
 
     // Build up an array based on weighting
     var selection = [];
@@ -137,6 +152,11 @@ function randomTweet(tweets) {
             selection.push(tweet.template);
         }
     });
+
+    // Edge case - we have no active templates
+    if (selection.length === 0) {
+        return null;
+    }
 
     return tweets[selection[Math.floor(Math.random() * selection.length)]];
 }
@@ -250,7 +270,19 @@ function sendToSns(data) {
         TopicArn: snsTopic
     };
     return sns.publish(params).promise()
-            .then(function () { return Promise.resolve(data); });
+            .then(confirmSnsPublication(data));
+}
+
+
+/**
+ * Validate that the SNS publish succeeded
+ */
+function confirmSnsPublication(tweet) {
+    return function (data) {
+        console.log("TWEET", tweet);
+        console.log("DATA", data);
+        return Promise.resolve(tweet);
+    };
 }
 
 
@@ -259,7 +291,7 @@ exports.handler = (event, context, callback) => {
 
     function errorHandler(err) {
         console.error(err);
-        callback("Error tweeting about blog: " + data.slug);
+        callback("Error tweeting about blog");
     }
 
     function successMessage(data) {
@@ -270,7 +302,8 @@ exports.handler = (event, context, callback) => {
     getTemplates()
         .then(getHistory(null))
         .then(getTwitterCredentials)
-        .then(mockSendTweet)
+        .then(sendTweet)
+//        .then(mockSendTweet)
         .then(updateHistory)
         .then(sendToSns)
         .then(successMessage)
