@@ -231,8 +231,70 @@ function mockSendTweet(data) {
 function processSentTweet(template) {
     return function(data) {
         data.template = template;
+
+        // Check for failure
+        if (data.resp.statusCode !== 200) {
+            var errorPayload = {
+                response: {
+                    status: data.resp.statusCode,
+                    message: data.resp.statusMessage,
+                    date: data.resp.headers.date
+                },
+                errors: data.data.errors,
+                template: template
+            };
+            updateErrors(errorPayload);
+            errorToSns(errorPayload);
+            return Promise.reject(errorPayload);
+        }
+
         return Promise.resolve(data);
     };
+}
+
+
+/**
+ * Update the tweet errors table in DynamoDB
+ */
+function updateErrors(data) {
+    var params = {
+        TableName: "blog-tweet-errors",
+        Item: {
+            date: data.response.date,
+            status: "" + data.response.status + " " + data.response.message,
+            "template-id": data.template["template-id"],
+            slug: data.template.slug,
+            errors: data.errors
+                        .map(err => {return "" + err.code + " " + err.message;})
+                        .join("; ")
+        }
+    };
+
+    // Deep into errors here, so use a callback
+    docClient.put(params, function (err, data) {
+        if (err) {
+            console.error(err);
+        }
+    });
+}
+
+
+/**
+ * Send an e-mail on error in tweeting
+ */
+function errorToSns(data) {
+    var params = {
+        Message: JSON.stringify(data),
+        Subject: "ERROR tweeting about blog: " + data.template.slug,
+        TopicArn: snsTopic
+    };
+
+    // Use a callback, because we're buried in errors already
+    sns.publish(params, function (err, data) {
+        if (err) {
+            console.error(err);
+        }
+    });
 }
 
 
