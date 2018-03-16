@@ -192,6 +192,36 @@ function processTwitterCredentials(tweet) {
 
 
 /**
+ * We want the past 5 tweets to all have been manual, if we are going to auto-post
+ */
+function checkForNaturalTweets(data) {
+    return function(tweets) {
+        var naturalPosts = tweets.data
+                                .map(x => x.source)
+                                .filter(x => x.includes("Twitter for iPhone"));
+        data.okayToPost = tweets.data.length === naturalPosts.length;
+        return data;
+    };
+}
+
+
+/**
+ * Check recent tweets (to avoid spamming your timeline
+ */
+function checkRecentTweets(data) {
+    var twitter = new Twit({
+        consumer_key: data.credentials["consumer-key"],
+        consumer_secret: data.credentials["consumer-secret"],
+        access_token: data.credentials["access-token"],
+        access_token_secret: data.credentials["access-secret"]
+    });
+
+    return twitter.get("statuses/user_timeline", {count: 5})
+            .then(checkForNaturalTweets(data));
+}
+
+
+/**
  * Send a tweet
  */
 function sendTweet(data) {
@@ -337,6 +367,20 @@ function sendToSns(data) {
 
 
 /**
+ * Add a "didn't post" message to SNS
+ */
+function sendSkippedToSns(data) {
+    var params = {
+        Message: "Skipped automated blog tweet because there are not enough natural tweets since the last automated tweet",
+        Subject: "Skipped automated blog tweet",
+        TopicArn: snsTopic
+    };
+    return sns.publish(params).promise()
+            .then(confirmSnsPublication(data));
+}
+
+
+/**
  * Validate that the SNS publish succeeded
  */
 function confirmSnsPublication(tweet) {
@@ -364,10 +408,18 @@ exports.handler = (event, context, callback) => {
     getTemplates()
         .then(getHistory(null))
         .then(getTwitterCredentials)
-        .then(sendTweet)
-//        .then(mockSendTweet)
-        .then(updateHistory)
-        .then(sendToSns)
-        .then(successMessage)
+        .then(checkRecentTweets)
+        .then(data => {
+
+            if (data.okayToPost) {
+//                mockSendTweet(data)
+                return sendTweet(data)
+                        .then(updateHistory)
+                        .then(sendToSns)
+                        .then(successMessage);
+            }
+
+            return sendSkippedToSns(data);
+        })
         .catch(errorHandler);
 };
